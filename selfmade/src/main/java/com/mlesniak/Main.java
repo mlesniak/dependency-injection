@@ -6,9 +6,9 @@ import com.mlesniak.boot.SummerApplication;
 
 @Component
 public class Main implements CommandLineRunner {
-    private final UsageService usageService;
+    private final MessageUsageService usageService;
 
-    public Main(UsageService usageService) {
+    public Main(MessageUsageService usageService) {
         this.usageService = usageService;
     }
 

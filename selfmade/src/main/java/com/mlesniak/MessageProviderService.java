@@ -3,7 +3,7 @@ package com.mlesniak;
 import com.mlesniak.boot.Component;
 
 @Component
-public class DemoService {
+public class MessageProviderService {
     public String getMessage() {
         return "Hello, world";
     }
