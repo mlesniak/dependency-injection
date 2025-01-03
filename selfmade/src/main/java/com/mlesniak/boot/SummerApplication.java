@@ -84,7 +84,10 @@ public class SummerApplication {
         URI uri = SummerApplication.class.getResource("/" + path).toURI();
 
         if (uri.getScheme().equals("jar")) {
+            System.out.println("JAR");
+            System.out.println(uri);
             try (FileSystem fileSystem = FileSystems.newFileSystem(uri, Collections.emptyMap())) {
+                System.out.println("FS " + fileSystem);
                 return findClassesInPath(fileSystem.getPath(path), packageName);
             }
         } else {
