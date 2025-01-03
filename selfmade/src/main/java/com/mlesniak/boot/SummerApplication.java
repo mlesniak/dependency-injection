@@ -10,102 +10,112 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/// Core dependency injection resolution.
 public class SummerApplication {
+    /// Entry point into dependency injection.
+    ///
+    /// @param mainClass The main class of the application, ideally placed at the root package.
+    /// @param args      Command line args.
     public static void run(Class<Main> mainClass, String[] args) {
         List<Class<?>> components = getComponents(mainClass);
-        System.out.println("Components:");
-        components.forEach(System.out::println);
 
+        // For our example, we support only singletons.
         Map<Class<?>, Object> instances = new HashMap<>();
         components.forEach(component -> createInstances(instances, component));
 
-        // instances.keySet().forEach(System.out::println);
-
-        // Find entry point.
-        var entryClass = instances.keySet().stream().filter(c -> Arrays.stream(c.getInterfaces()).anyMatch(i -> i == CommandLineRunner.class)).findFirst()
-                .orElseThrow(() -> new IllegalStateException("No entry point via CommandLineRunner found"));
+        // Find entry point by looking for the class implementing CommandLineRunner. If there are multiple, take a
+        // random one.
+        var entryClasses = instances
+                .keySet().stream()
+                .filter(SummerApplication::hasCommandLineRunnerInterface)
+                .toList();
+        if (entryClasses.isEmpty()) {
+            throw new IllegalStateException("No entry point defined via CommandLineRunner");
+        }
+        if (entryClasses.size() > 1) {
+            throw new IllegalStateException("Ambigous entry points defined via CommandLineRunner");
+        }
+        var entryClass = entryClasses.getFirst();
 
         ((CommandLineRunner) instances.get(entryClass)).run(args);
     }
 
-    // No cycle check yet.
+    private static boolean hasCommandLineRunnerInterface(Class<?> clazz) {
+        return Arrays.stream(clazz.getInterfaces())
+                .anyMatch(i -> i == CommandLineRunner.class);
+    }
+
+    /// Creates a new instance for the passed class using its constructor.
+    ///
+    /// We resolve all dependent constructor parameters.
     private static void createInstances(Map<Class<?>, Object> instances, Class<?> clazz) {
-        System.out.println("Handling " + clazz.getSimpleName());
         var cs = clazz.getDeclaredConstructors();
-        // No unique constructor.
         if (cs.length > 1) {
-            throw new IllegalArgumentException("No unique constructor found");
+            throw new IllegalArgumentException("No unique constructor found for " + clazz.getSimpleName());
         }
 
-        // We might have dependencies. Look them up or generate them if they are not used.
         var constructor = cs[0];
-        var expectedTypes = constructor.getParameterTypes();
+        var expectedInjections = constructor.getParameterTypes();
 
-        // No dependencies? We can create an object.
-        if (expectedTypes.length == 0) {
-            try {
-                instances.put(clazz, clazz.getDeclaredConstructor().newInstance());
-                return;
-            } catch (InstantiationException | IllegalAccessException | InvocationTargetException |
-                     NoSuchMethodException e) {
-                throw new RuntimeException(e);
-            }
-        }
-
-        // For every dependency, generate them.
-        Arrays.stream(expectedTypes).forEach(depClass -> {
-            System.out.println("Creating depending instance for " + depClass.getSimpleName());
+        // For every dependent dependency, generate a new instance. Note that we implicitly handle the case for
+        // parameter-less constructors here as well.
+        Arrays.stream(expectedInjections).forEach(depClass -> {
             createInstances(instances, depClass);
         });
 
-        var params = Arrays.stream(expectedTypes).map(param -> instances.get(param)).toArray();
+        var params = Arrays.stream(expectedInjections).map(instances::get).toArray();
         try {
             instances.put(clazz, constructor.newInstance(params));
         } catch (InstantiationException | IllegalAccessException | InvocationTargetException e) {
-            throw new RuntimeException(e);
+            throw new IllegalStateException("Unable to create instance for " + clazz.getSimpleName(), e);
         }
     }
 
+    /// Get a list of all components based on the passed package of the class.
+    ///
+    /// @param mainClass the root class to start scanning.
     private static List<Class<?>> getComponents(Class<Main> mainClass) {
-        List<Class<?>> components;
         try {
-            components = findAllClassesInPackage(mainClass.getPackageName()).
+            return findAllClassesInPackage(mainClass.getPackageName()).
                     stream()
                     .filter(c -> c.getAnnotation(Component.class) != null)
                     .collect(Collectors.toList());
         } catch (IOException | URISyntaxException e) {
             throw new RuntimeException(e);
         }
-        return components;
     }
 
-    public static Set<Class<?>> findAllClassesInPackage(String packageName) throws IOException, URISyntaxException {
+    /// Retrieve a list of all classes in a package (or its children). This method supports both unpacked
+    /// (target/classes) and packed (.jar) class containers.
+    private static Set<Class<?>> findAllClassesInPackage(String packageName) throws IOException, URISyntaxException {
         String path = packageName.replace('.', '/');
         URI uri = SummerApplication.class.getResource("/" + path).toURI();
 
         if (uri.getScheme().equals("jar")) {
-            System.out.println("JAR");
-            System.out.println(uri);
+            // We have to create a "virtual" filesystem to access the class files stored in the
+            // .jar file.
             try (FileSystem fileSystem = FileSystems.newFileSystem(uri, Collections.emptyMap())) {
-                System.out.println("FS " + fileSystem);
                 return findClassesInPath(fileSystem.getPath(path), packageName);
             }
-        } else {
-            return findClassesInPath(Paths.get(uri), packageName);
         }
+
+        // We're running the injection code from an unpacked archive and can directly access the .class files.
+        return findClassesInPath(Paths.get(uri), packageName);
     }
 
+    /// Iterate through all .class files in the given path for the given package.
     private static Set<Class<?>> findClassesInPath(Path path, String packageName) throws IOException {
         try (var walk = Files.walk(path, 1)) {
             return walk
                     .filter(p -> !Files.isDirectory(p))
                     .filter(p -> p.toString().endsWith(".class"))
                     .map(p -> getClass(p, packageName))
-                    .filter(c -> c != null)
+                    .filter(Objects::nonNull)
                     .collect(Collectors.toSet());
         }
     }
 
+    /// Retrieve a class based on the path and package name.
     private static Class<?> getClass(Path classPath, String packageName) {
         try {
             String className = packageName + "." + classPath.getFileName().toString().replace(".class", "");
