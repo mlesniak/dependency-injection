@@ -3,26 +3,76 @@ package com.mlesniak.boot;
 import com.mlesniak.Main;
 
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.*;
-import java.util.Collections;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class SummerApplication {
     public static void run(Class<Main> mainClass, String[] args) {
-        Set<Class<?>> components = getComponents(mainClass);
-        System.out.println(components);
+        List<Class<?>> components = getComponents(mainClass);
+        System.out.println("Components:");
+        components.forEach(System.out::println);
+
+        Map<Class<?>, Object> instances = new HashMap<>();
+        components.forEach(component -> createInstances(instances, component));
+
+        // instances.keySet().forEach(System.out::println);
+
+        // Find entry point.
+        var entryClass = instances.keySet().stream().filter(c -> Arrays.stream(c.getInterfaces()).anyMatch(i -> i == CommandLineRunner.class)).findFirst()
+                .orElseThrow(() -> new IllegalStateException("No entry point via CommandLineRunner found"));
+
+        ((CommandLineRunner) instances.get(entryClass)).run(args);
     }
 
-    private static Set<Class<?>> getComponents(Class<Main> mainClass) {
-        Set<Class<?>> components;
+    // No cycle check yet.
+    private static void createInstances(Map<Class<?>, Object> instances, Class<?> clazz) {
+        System.out.println("Handling " + clazz.getSimpleName());
+        var cs = clazz.getDeclaredConstructors();
+        // No unique constructor.
+        if (cs.length > 1) {
+            throw new IllegalArgumentException("No unique constructor found");
+        }
+
+        // We might have dependencies. Look them up or generate them if they are not used.
+        var constructor = cs[0];
+        var expectedTypes = constructor.getParameterTypes();
+
+        // No dependencies? We can create an object.
+        if (expectedTypes.length == 0) {
+            try {
+                instances.put(clazz, clazz.getDeclaredConstructor().newInstance());
+                return;
+            } catch (InstantiationException | IllegalAccessException | InvocationTargetException |
+                     NoSuchMethodException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        // For every dependency, generate them.
+        Arrays.stream(expectedTypes).forEach(depClass -> {
+            System.out.println("Creating depending instance for " + depClass.getSimpleName());
+            createInstances(instances, depClass);
+        });
+
+        var params = Arrays.stream(expectedTypes).map(param -> instances.get(param)).toArray();
+        try {
+            instances.put(clazz, constructor.newInstance(params));
+        } catch (InstantiationException | IllegalAccessException | InvocationTargetException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static List<Class<?>> getComponents(Class<Main> mainClass) {
+        List<Class<?>> components;
         try {
             components = findAllClassesInPackage(mainClass.getPackageName()).
                     stream()
                     .filter(c -> c.getAnnotation(Component.class) != null)
-                    .collect(Collectors.toSet());
+                    .collect(Collectors.toList());
         } catch (IOException | URISyntaxException e) {
             throw new RuntimeException(e);
         }
@@ -32,7 +82,6 @@ public class SummerApplication {
     public static Set<Class<?>> findAllClassesInPackage(String packageName) throws IOException, URISyntaxException {
         String path = packageName.replace('.', '/');
         URI uri = SummerApplication.class.getResource("/" + path).toURI();
-        System.out.println(uri);
 
         if (uri.getScheme().equals("jar")) {
             try (FileSystem fileSystem = FileSystems.newFileSystem(uri, Collections.emptyMap())) {
