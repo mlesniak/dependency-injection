@@ -21,7 +21,7 @@ public class SummerApplication {
 
         // For our example, we support only singletons.
         Map<Class<?>, Object> instances = new HashMap<>();
-        components.forEach(component -> createSingleton(instances, component));
+        components.forEach(component -> createSingleton(instances, new HashSet<>(), component));
 
         // Find entry point by looking for the class implementing CommandLineRunner. If there are multiple, take a
         // random one.
@@ -33,7 +33,7 @@ public class SummerApplication {
             throw new IllegalStateException("No entry point defined via CommandLineRunner");
         }
         if (entryClasses.size() > 1) {
-            throw new IllegalStateException("Ambigous entry points defined via CommandLineRunner");
+            throw new IllegalStateException("Ambiguous entry points defined via CommandLineRunner");
         }
         var entryClass = entryClasses.getFirst();
 
@@ -48,7 +48,13 @@ public class SummerApplication {
     /// Creates a new instance for the passed class using its constructor.
     ///
     /// We resolve all dependent constructor parameters.
-    private static void createSingleton(Map<Class<?>, Object> singletons, Class<?> clazz) {
+    private static void createSingleton(Map<Class<?>, Object> singletons, Set<Class<?>> visited, Class<?> clazz) {
+        // Cycle detection. We've been called to resolve a parameter dependency, but already tried to resolve the
+        // dependencies for this class. When trying to resolve clazz' dependencies, we will run into an infinite cycle.
+        if (!visited.add(clazz)) {
+            var names = visited.stream().map(Class::getSimpleName).collect(Collectors.joining(", "));
+            throw new IllegalStateException("Cycle detected. Visited classes=" + names);
+        }
         var cs = clazz.getDeclaredConstructors();
         if (cs.length > 1) {
             throw new IllegalArgumentException("No unique constructor found for " + clazz.getSimpleName());
@@ -60,7 +66,7 @@ public class SummerApplication {
         // For every dependent dependency, generate a new instance. Note that we implicitly handle the case for
         // parameter-less constructors here as well.
         Arrays.stream(expectedInjections).forEach(depClass -> {
-            createSingleton(singletons, depClass);
+            createSingleton(singletons, visited, depClass);
         });
 
         var params = Arrays.stream(expectedInjections).map(singletons::get).toArray();
