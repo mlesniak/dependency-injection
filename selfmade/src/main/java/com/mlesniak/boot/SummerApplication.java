@@ -81,7 +81,7 @@ public class SummerApplication {
                     .filter(c -> c.getAnnotation(Component.class) != null)
                     .collect(Collectors.toList());
         } catch (IOException | URISyntaxException e) {
-            throw new RuntimeException(e);
+            throw new IllegalStateException("Error retrieving components, starting at " + mainClass.getSimpleName(), e);
         }
     }
 
