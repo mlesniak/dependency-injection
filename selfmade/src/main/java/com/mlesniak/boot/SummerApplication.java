@@ -21,7 +21,7 @@ public class SummerApplication {
 
         // For our example, we support only singletons.
         Map<Class<?>, Object> instances = new HashMap<>();
-        components.forEach(component -> createInstances(instances, component));
+        components.forEach(component -> createSingleton(instances, component));
 
         // Find entry point by looking for the class implementing CommandLineRunner. If there are multiple, take a
         // random one.
@@ -48,7 +48,7 @@ public class SummerApplication {
     /// Creates a new instance for the passed class using its constructor.
     ///
     /// We resolve all dependent constructor parameters.
-    private static void createInstances(Map<Class<?>, Object> instances, Class<?> clazz) {
+    private static void createSingleton(Map<Class<?>, Object> singletons, Class<?> clazz) {
         var cs = clazz.getDeclaredConstructors();
         if (cs.length > 1) {
             throw new IllegalArgumentException("No unique constructor found for " + clazz.getSimpleName());
@@ -60,12 +60,12 @@ public class SummerApplication {
         // For every dependent dependency, generate a new instance. Note that we implicitly handle the case for
         // parameter-less constructors here as well.
         Arrays.stream(expectedInjections).forEach(depClass -> {
-            createInstances(instances, depClass);
+            createSingleton(singletons, depClass);
         });
 
-        var params = Arrays.stream(expectedInjections).map(instances::get).toArray();
+        var params = Arrays.stream(expectedInjections).map(singletons::get).toArray();
         try {
-            instances.put(clazz, constructor.newInstance(params));
+            singletons.put(clazz, constructor.newInstance(params));
         } catch (InstantiationException | IllegalAccessException | InvocationTargetException e) {
             throw new IllegalStateException("Unable to create instance for " + clazz.getSimpleName(), e);
         }
