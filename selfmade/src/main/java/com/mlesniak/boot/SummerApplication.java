@@ -23,8 +23,7 @@ public class SummerApplication {
         Map<Class<?>, Object> instances = new HashMap<>();
         components.forEach(component -> createSingleton(instances, new HashSet<>(), component));
 
-        // Find entry point by looking for the class implementing CommandLineRunner. If there are multiple, take a
-        // random one.
+        // Find entry point by looking for the class implementing CommandLineRunner.
         var entryClasses = instances
                 .keySet().stream()
                 .filter(SummerApplication::hasCommandLineRunnerInterface)
