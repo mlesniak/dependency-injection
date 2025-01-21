@@ -81,8 +81,7 @@ public class SummerApplication {
     /// @param mainClass the root class to start scanning.
     private static List<Class<?>> getComponents(Class<Main> mainClass) {
         try {
-            return findAllClassesInPackage(mainClass.getPackageName()).
-                    stream()
+            return findAllClassesInPackage(mainClass.getPackageName()).stream()
                     .filter(c -> c.getAnnotation(Component.class) != null)
                     .collect(Collectors.toList());
         } catch (IOException | URISyntaxException e) {
